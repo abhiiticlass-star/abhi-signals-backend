@@ -1,20 +1,36 @@
-import pandas_ta as ta
+import pandas as pd
+import numpy as np
 
-def get_market_analysis(df):
-    # Layer 1: EMA Filter (Trend)
-    ema200 = df['close'].rolling(200).mean()
-    layer1 = df['close'].iloc[-1] > ema200.iloc[-1]
+def calculate_6_layer_confluence(df):
+    if df.empty or len(df) < 200:
+        return {"signal": "WAITING", "score": 0, "trend": "Neutral"}
     
-    # Layer 2: RSI Filter (Overbought/Oversold)
-    rsi = ta.rsi(df['close'], length=14)
-    layer2 = rsi.iloc[-1] < 70 and rsi.iloc[-1] > 30
+    # Ensure columns exist
+    df = df.copy()
+    # EMA Calculation
+    df['ema_fast'] = df['close'].ewm(span=9, adjust=False).mean()
+    df['ema_slow'] = df['close'].ewm(span=21, adjust=False).mean()
     
-    # Layer 3-6: Yahan aap apne custom indicators add karenge
-    # Jaise: Support/Resistance, Volume, Stochastic, Bollinger Bands
+    # RSI Calculation
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['rsi'] = 100 - (100 / (1 + rs))
     
-    # Simple example output
-    return {
-        "trend": "Bullish" if layer1 else "Bearish",
-        "signal": "CALL" if (layer1 and layer2) else "PUT",
-        "probability": 75 
-    }
+    last = df.iloc[-1]
+    
+    layer1 = last['ema_fast'] > last['ema_slow']
+    layer2 = last['rsi'] < 65
+    layer3 = last['close'] > last['open']
+    layer4 = last['vol'] > df['vol'].rolling(20).mean().iloc[-1]
+    layer5 = last['close'] > df['low'].rolling(20).min().iloc[-1]
+    layer6 = last['close'] > last['ema_fast']
+    
+    score = sum([layer1, layer2, layer3, layer4, layer5, layer6])
+    
+    signal = "NONE"
+    if score >= 5: signal = "CALL"
+    elif score <= 1: signal = "PUT"
+        
+    return {"signal": signal, "score": score, "trend": "Bullish" if layer1 else "Bearish"}
